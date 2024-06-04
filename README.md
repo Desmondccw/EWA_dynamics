@@ -4,5 +4,7 @@ Code to simulate continuous EWA-learning dynamics over randomly initialised payo
 In each game, we could vary:
 
 r- The (inverse) exploration parameter
+
 N- Number of actions
+
 Gamma- A correlation parameter in the payoff matrix

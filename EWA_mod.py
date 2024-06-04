@@ -11,8 +11,10 @@ from scipy.linalg import expm
 
 from scipy import linalg
 
-'''Note for self: Use scipy as much as possible...'''
 
+''''1. Game Initialisation'''
+
+''' Payoff Matrix Generation and initial points'''
 '''Generate random matrices for the games'''
 
 def payoff_tensor_generator_2_player(n_actions, gamma):
@@ -44,6 +46,8 @@ def random_starting_point(n_players, n_actions):
 
     nums= np.random.uniform(0,1,(n_players, n_actions))
     return nums / np.sum(nums, axis=1, keepdims=True)
+
+''' Player class'''
 
 class player:
     '''Generate player'''
@@ -84,7 +88,7 @@ class player:
 
         return round_update + decay - np.sum(X)
     
-        
+ ''' EWA_system class'''       
 class EWA_system:
 
     '''A EWA system consisting of n_player, n_action depending (the dimensions are found via the tensor)'''
@@ -139,6 +143,12 @@ class EWA_system:
             
         return states
 
+'''Derivative functions
+    
+    d_core computes the standard derivative
+    d_core_mod computes derivative of x_i / x_i
+    
+    Useful to have functions for both'''
     
 def d_core(t,X, payoff_tensor, r):
     '''Calculate the derivative given a state'''
@@ -229,7 +239,7 @@ def kaplan_yorke_dimension(exponents):
         return len(cumsum_positive)+ cumsum_positive[-1] / np.abs(sort[len(cumsum_positive)])
 
 def flow_map(tf, X0, payoff_tensor, r, maxstep= 1):
-    '''Integrates the system forwards in time given initial state X0'''
+    '''Integrates the system forwards in time given initial state X0 using Runga-Kutta 45'''
 
     '''Arbitrary max step size set to depend on the no. actions... more actions require smaller steps size as there is a higher chance of going out of bounds of (0,1)'''
     step_max= maxstep/ np.sqrt(payoff_tensor.shape[-1])

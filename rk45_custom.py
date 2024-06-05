@@ -24,17 +24,23 @@ def rk45(deriv, y0, t_span, tol=1e-6, h_max=0.1):
         y4 = y + 25 * k1 / 216 + 1408 * k3 / 2565 + 2197 * k4 / 4104 - k5 / 5
         y5 = y + 16 * k1 / 135 + 6656 * k3 / 12825 + 28561 * k4 / 56430 - 9 * k5 / 50 + 2 * k6 / 55
 
+        '''Expected error'''
         error = np.linalg.norm(y5 - y4) + 1e-20
-
-        if np.all((y5 > 0) & (y5 <= 1)) == False : 
+        
+        '''If new point is out of the simplex''' 
+        if np.all((y5 > 0) & (y5 <= 1)) == False:
             dyy= np.array(y/k1 * h) 
             neg_dyy = dyy[dyy < 0]
+
+            '''Pick a smaller step size that ensure points stay in'''
             
             h = -np.max(neg_dyy)/ 5
         
         if error < tol:
             t += h
             y = y5
+
+            '''Record time and state values'''
             t_values.append(t)
             y_values.append(y)
         

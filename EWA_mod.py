@@ -11,6 +11,7 @@ from scipy.linalg import expm
 
 from scipy import linalg
 
+from rk45_custom import *
 
 ''''1. Game Initialisation'''
 
@@ -58,23 +59,23 @@ class player:
         self.state= state
         self.tensor= self_tensor
         
-    def calc_vector(self, full_state, r):
+    def calc_vector(self, full_state, r, eps):
 
         '''Calculates update for a given player given memory term(r) and distributions of the the other players and itself (full state)'''
-        
+
         round_update= self.tensor.copy()
         
         for count, i in enumerate(full_state):
             if count != self.index: 
                 round_update= round_update @ np.array(i)
                 
-        decay= -np.log(np.abs(self.state) + 1e-28)/r        
+        decay= -np.log(np.abs(self.state) + eps)/r        
         
         X= (round_update + decay)* self.state
         
         return X- np.sum(X)*self.state
     
-    def mod_deriv(self, full_state, r):
+    def mod_deriv(self, full_state, r, eps):
 
         round_update= self.tensor.copy()
         
@@ -82,13 +83,13 @@ class player:
             if count != self.index: 
                 round_update= round_update @ np.array(i)
                 
-        decay= -np.log(np.abs(self.state) + 1e-28)/r
+        decay= -np.log(np.abs(self.state) + eps)/r
 
         X= (round_update + decay)* self.state
 
         return round_update + decay - np.sum(X)
     
- ''' EWA_system class'''       
+''' EWA_system class'''       
 class EWA_system:
 
     '''A EWA system consisting of n_player, n_action depending (the dimensions are found via the tensor)'''
@@ -108,25 +109,25 @@ class EWA_system:
         
         self.state= state
     
-    def update_vector(self):
+    def update_vector(self, eps):
         '''Calculates the derivative given a position'''
         
         update_vectors=[]
         
         for i in range(self.n_player):
             i_player= player(index= i, state= self.state[i], self_tensor= self.payoff_tensor[i])
-            vect= i_player.calc_vector(full_state= self.state, r= self.r)
+            vect= i_player.calc_vector(full_state= self.state, r= self.r, eps=eps)
             update_vectors.append(vect)
             
         return np.array(update_vectors)
     
-    def mod_derivative(self):
+    def mod_derivative(self, eps):
         
         update_vectors=[]
         
         for i in range(self.n_player):
             i_player= player(index= i, state= self.state[i], self_tensor= self.payoff_tensor[i])
-            vect= i_player.mod_deriv(full_state= self.state, r= self.r)
+            vect= i_player.mod_deriv(full_state= self.state, r= self.r, eps= eps)
             update_vectors.append(vect)
             
         return np.array(update_vectors)
@@ -150,7 +151,7 @@ class EWA_system:
     
     Useful to have functions for both'''
     
-def d_core(t,X, payoff_tensor, r):
+def d_core(t,X, payoff_tensor, r, eps=1e-28):
     '''Calculate the derivative given a state'''
     
     sys= EWA_system(payoff_tensor, r)
@@ -159,7 +160,7 @@ def d_core(t,X, payoff_tensor, r):
     
     sys.initialise_state(X)
     
-    vect= sys.update_vector().flatten()
+    vect= sys.update_vector(eps).flatten()
 
     del sys
     
@@ -168,7 +169,7 @@ def d_core(t,X, payoff_tensor, r):
             vect[count]=0
     return vect
 
-def d_core_mod(t, X, payoff_tensor, r): 
+def d_core_mod(t, X, payoff_tensor, r, eps=1e-28): 
 
     sys= EWA_system(payoff_tensor, r)
     
@@ -176,7 +177,7 @@ def d_core_mod(t, X, payoff_tensor, r):
     
     sys.initialise_state(X)
     
-    vect= sys.mod_derivative().flatten()
+    vect= sys.mod_derivative(eps).flatten()
 
     del sys
     
@@ -238,16 +239,103 @@ def kaplan_yorke_dimension(exponents):
     else:
         return len(cumsum_positive)+ cumsum_positive[-1] / np.abs(sort[len(cumsum_positive)])
 
-def flow_map(tf, X0, payoff_tensor, r, maxstep= 1):
-    '''Integrates the system forwards in time given initial state X0 using Runga-Kutta 45'''
+def flow_map(tf, X0, payoff_tensor, r, maxstep= 1, eps=1e-28):
+    '''Integrates the system forwards in time given initial state X0 using Runga-Kutta 45 via scipy'''
 
     '''Arbitrary max step size set to depend on the no. actions... more actions require smaller steps size as there is a higher chance of going out of bounds of (0,1)'''
     step_max= maxstep/ np.sqrt(payoff_tensor.shape[-1])
     
-    sol= solve_ivp(lambda t, y: d_core(t, y, payoff_tensor, r), t_span=(0, tf), y0=X0, max_step= step_max)
+    sol= solve_ivp(lambda t, y: d_core(t, y, payoff_tensor, r, eps), t_span=(0, tf), y0=X0, max_step= step_max)
     
     solve= sol.y.T[-1]
     return sol
+
+def mod_flow_map(tf, X0, payoff_tensor, r, maxstep= 1, eps=1e-1000):
+
+    ''' Custom RK 45 implementation (non-scipy)'''
+
+    step_max= maxstep/ np.sqrt(payoff_tensor.shape[-1])
+
+    t_array, y_array= rk45(lambda t, y: d_core(t, y, payoff_tensor, r, eps), X0, t_span=(0, tf), tol=1e-6, h_max=step_max)
+
+    return t_array, y_array
+
+def mod_simulate_random_game(n_players= 2, n_actions= 20, gamma= -0.8, r= 500, time_interval=10000, visualise= True):
+
+    ''' Custom RK 45 implementation'''
+
+    a= payoff_tensor_generator_2_player(n_actions, gamma)
+    initial_state= generate_starting_point(n_players, n_actions)
+
+    time_array, strategy_evolution_array = mod_flow_map(time_interval, initial_state.flatten(), a, r)
+
+    output={ "time_array": time_array, 'strategy_evolution': strategy_evolution_array}
+
+    if visualise== True:
+        '''Visualise strategies of the first player'''
+
+        fig1, ax1 = plt.subplots()
+        plt.rcParams.update({'font.size': 12})
+
+        ax1.stackplot(time_array, strategy_evolution_array.T[0:n_actions]);
+        ax1.set_xlabel("time")
+        ax1.set_ylabel('Probability for a given strategy')
+        ax1.set_title('Probability evolution of strategies over time for player 1')
+        ax1.set_xlim([0, time_interval])
+        ax1.set_ylim([0, 1])
+        
+        fig1.set_size_inches(15,5)
+        
+        '''Visualise strategies of the second player'''
+        fig2, ax2 = plt.subplots()
+        
+        plt.rcParams.update({'font.size': 12})
+        ax2.stackplot(time_array,strategy_evolution_array.T[n_actions:]);
+        ax2.set_xlabel("time")
+        ax2.set_ylabel('Probability for a given strategy')
+        ax2.set_title('Probability evolution of strategies over time for player 2')
+        ax2.set_xlim([0, time_interval])
+        ax2.set_ylim([0, 1])  
+        fig2.set_size_inches(15,5)
+
+    return output
+
+def run_till_convergence(n_players= 2, n_actions= 20, gamma= -0.8, r= 500, time_interval=100, show_error= True):
+
+    tol = 1e-14
+    count= 0
+
+    converged = False
+
+    a= payoff_tensor_generator_2_player(n_actions, gamma)
+    initial_state= generate_starting_point(n_players, n_actions)
+
+    def has_converged(state, tol):
+        
+        return np.linalg.norm(d_core(0, state, a, r)) < tol 
+    
+    state= initial_state.copy()
+
+    while not converged and count < 60:
+        # Solve the IVP for the current time span
+        sol= mod_flow_map(time_interval, state.flatten(), a, r)
+
+        state= (sol[1][-1]).flatten()
+
+        converged = has_converged(state, tol)
+
+        count+=1
+
+        if count > 10:
+            print(f'Count: {count}')
+
+    if converged:
+        if show_error== True:
+            print(f'Derivative norm at endpoint: {np.linalg.norm(d_core(0, state, a, r)) }')
+        return state
+    
+    else:
+        return np.array([np.inf])
 
 def simulate_random_game(n_players= 2, n_actions= 20, gamma= -0.8, r= 500, time_interval=10000, visualise= True, est_KY_dim= True):
     a= payoff_tensor_generator_2_player(n_actions, gamma)
@@ -295,62 +383,5 @@ def simulate_random_game(n_players= 2, n_actions= 20, gamma= -0.8, r= 500, time_
         ky= kaplan_yorke_dimension(exp)
         output.update({"Exponents": exp})
         output.update({"KY dimension": ky})
+        print(f'Estimated KY dimensition: {ky}')
     return output
-
-def find_fixed_point(X0, payoff_tensor, r):
-    '''Finds a fixed point for a given game'''
-    '''Dangerous does not gurantee stability as there might be multiple fixed_point'''
-
-    '''Constraint to the simplex'''
-
-    n_actions, n_players= payoff_tensor.shape[-1] , 2
-
-    '''2 constraints...
-    a) non-negativity
-    b) Simplex constraint'''
-    
-    constraints =[{'type': 'eq', 'fun': lambda x: np.sum(x[:n_actions])-1}] + \
-                [{'type': 'eq', 'fun': lambda x: np.sum(x[n_actions:])-1}]
-
-    '''returns derivative'''
-    def fun(x):
-        return np.sum(d_core_mod(0, x, payoff_tensor, r)**2)
-
-    sol = minimize(fun, X0, constraints=constraints, bounds= Bounds([0 for i in range(len(X0))], [1 for i in range(len(X0))]) )
-    
-    return sol
-
-def run_till_convergence(n_players= 2, n_actions= 20, gamma= -0.8, r= 500, time_interval=100):
-
-    tol = 1e-8
-    count= 0
-
-    converged = False
-
-    a= payoff_tensor_generator_2_player(n_actions, gamma)
-    initial_state= generate_starting_point(n_players, n_actions)
-
-    def has_converged(state, tol):
-        
-        return np.linalg.norm(d_core(0, state, a, r)) < tol 
-    
-    state= initial_state.copy()
-
-    while not converged and count < 60:
-        # Solve the IVP for the current time span
-        sol= flow_map(time_interval, state.flatten(), a, r)
-
-        state= (sol.y.T[-1]).flatten()
-
-        converged = has_converged(state, tol)
-
-        count+=1
-
-        if count > 10:
-            print(f'Count: {count}')
-
-    if converged:
-        return state
-    
-    else:
-        return np.array([np.inf])
